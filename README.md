@@ -122,3 +122,7 @@ pytest tests/test_value.py -v
 ```
 
 Tests include numerical gradient checks for matmul, fused softmax/CE, and all engine primitives.
+
+## License
+
+MIT.
