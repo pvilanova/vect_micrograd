@@ -2,6 +2,7 @@
 
 <p align="center">
   <img src="spiral.png" alt="Spiral" />
+  <img src="checker.png" alt="Spiral" />
 </p>
 
 A vectorized extension of Andrej Karpathy's [micrograd](https://github.com/karpathy/micrograd).
