@@ -4,20 +4,7 @@ A vectorized extension of Andrej Karpathy's [micrograd](https://github.com/karpa
 
 The core idea is simple: keep the same dynamic DAG and reverse-mode autodiff, but let each `Value` node store a NumPy array instead of a Python scalar. A dense layer goes from thousands of scalar nodes to a handful of array ops — matmul, add, activation — without changing how the graph or the backward pass work. Does not support second order derivation.
 
-```python
-from vect_micrograd import Value, MLP, SGD, one_hot
-
-model = MLP(2, [16, 16, 3])
-Y     = one_hot(y, classes=3)
-
-optimizer = SGD(model.parameters(), lr=1.0, total_steps=1000)
-
-for k in range(1000):
-    loss, probs = model(X).softmax_ce(Y)
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step(k)
-```
+![Spiral](spiral.png)
 
 ---
 
