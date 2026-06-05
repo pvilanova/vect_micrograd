@@ -82,8 +82,8 @@ vect_micrograd/
     vect_nn.py       # Module, Layer, MLP 
     optim.py           # Optimizer, SGD, Adam 
     utils.py           # Loss functions and checkpointing 
-    tests/
-        test_value.py  # Numerical gradient checks and unit tests
+tests/
+    test_value.py  # Numerical gradient checks and unit tests
 ```
 
 Total: ~340 lines not including comments nor docstrings.
