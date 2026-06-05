@@ -129,7 +129,7 @@ Aims to fill the educational gap between micrograd and tinygrad by showing how t
 
 ```bash
 pip install pytest
-pytest vect_micrograd/tests/
+pytest tests/test_value.py -v
 ```
 
 Tests include numerical gradient checks for matmul, fused softmax/CE, and all engine primitives.
