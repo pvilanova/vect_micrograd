@@ -2,7 +2,7 @@
 
 A vectorized extension of Andrej Karpathy's [micrograd](https://github.com/karpathy/micrograd).
 
-The core idea is simple: keep the same dynamic DAG and reverse-mode autodiff, but let each `Value` node store a NumPy array instead of a Python scalar. A dense layer goes from thousands of scalar nodes to a handful of array ops — matmul, add, activation — without changing how the graph or the backward pass work.
+The core idea is simple: keep the same dynamic DAG and reverse-mode autodiff, but let each `Value` node store a NumPy array instead of a Python scalar. A dense layer goes from thousands of scalar nodes to a handful of array ops — matmul, add, activation — without changing how the graph or the backward pass work. Does not support second order derivation.
 
 ```python
 from vect_micrograd import Value, MLP, SGD, one_hot
