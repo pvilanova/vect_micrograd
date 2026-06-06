@@ -1,13 +1,6 @@
-"""Vectorized neural-network helpers for micrograd.
-
-This module deliberately stays small: it only defines model building blocks.
-Training loops, optimizers, and checkpointing live in the demo code.
-"""
-
 import numpy as np
 
 from vect_micrograd.vect_engine import Value
-
 
 class Module:
     def zero_grad(self):

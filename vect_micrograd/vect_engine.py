@@ -219,25 +219,6 @@ class Value:
         out._backward = _backward
         return out, probs
 
-    def exp(self):
-        e = np.exp(self.data)
-        out = Value(e, (self,), "exp")
-
-        def _backward():
-            self.grad += e * out.grad
-
-        out._backward = _backward
-        return out
-
-    def log(self):
-        out = Value(np.log(self.data), (self,), "log")
-
-        def _backward():
-            self.grad += (1 / self.data) * out.grad
-
-        out._backward = _backward
-        return out
-
     def sum(self, axis=None, keepdims: bool = False):
         out = Value(self.data.sum(axis=axis, keepdims=keepdims), (self,), "sum")
 
@@ -280,9 +261,6 @@ class Value:
 
     def item(self):
         return self.data.item()
-
-    def __float__(self):
-        return float(self.data)
 
     def __neg__(self):
         return self * -1
