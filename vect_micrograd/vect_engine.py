@@ -187,6 +187,27 @@ class Value:
         out._backward = _backward
         return out
 
+    def exp(self):
+        e = np.exp(self.data)
+        out = Value(e, (self,), "exp", self.requires_grad)
+
+        def _backward():
+            if self.requires_grad:
+                self.grad += e * out.grad
+
+        out._backward = _backward
+        return out
+
+    def log(self):
+        out = Value(np.log(self.data), (self,), "log", self.requires_grad)
+
+        def _backward():
+            if self.requires_grad:
+                self.grad += (1 / self.data) * out.grad
+
+        out._backward = _backward
+        return out
+    
     def tanh(self):
         t = np.tanh(self.data)
         out = Value(t, (self,), "tanh")
