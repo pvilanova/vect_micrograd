@@ -87,7 +87,7 @@ tests/
     test_value.py  # Numerical gradient checks and unit tests
 ```
 
-Total: ~340 lines not including comments nor docstrings.
+Total: ~350 lines not including comments nor docstrings.
 
 ---
 

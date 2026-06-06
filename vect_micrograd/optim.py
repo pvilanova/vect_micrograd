@@ -36,21 +36,52 @@ class SGD(Optimizer):
 
 
 class Adam(Optimizer):
-    def __init__(self, parameters, lr=1e-2, total_steps=None, beta1=0.9, beta2=0.999, eps=1e-8):
+    def __init__(self, parameters, lr=1e-2, total_steps=None, beta1=0.9, beta2=0.999, eps=1e-8, weight_decay=1e-2):
         super().__init__(parameters, lr, total_steps)
         self.beta1 = beta1
         self.beta2 = beta2
         self.eps = eps
+        self.weight_decay = weight_decay
         self.m = [np.zeros_like(p.data) for p in self.parameters]
         self.v = [np.zeros_like(p.data) for p in self.parameters]
 
     def step(self, k):
         lr = self._current_lr(k)
-        t = k + 1  # avoid division by zero at k=0
+        t = k + 1
         for i, p in enumerate(self.parameters):
-            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * p.grad
-            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * (p.grad ** 2)
-            mhat = self.m[i] / (1 - self.beta1 ** t)
-            vhat = self.v[i] / (1 - self.beta2 ** t)
-            p.data -= lr * mhat / (np.sqrt(vhat) + self.eps)
-            
+            if self.weight_decay != 0.0:
+                p.data -= lr * self.weight_decay * p.data
+            self.m[i] = self.beta1 * self.m[i] + (1.0 - self.beta1) * p.grad
+            self.v[i] = self.beta2 * self.v[i] + (1.0 - self.beta2) * (p.grad ** 2)
+            m_hat = self.m[i] / (1.0 - self.beta1 ** t)
+            v_hat = self.v[i] / (1.0 - self.beta2 ** t)
+            p.data -= lr * m_hat / (np.sqrt(v_hat) + self.eps)    
+
+
+class Lion(Optimizer):
+    def __init__(self, parameters, lr=1e-4, total_steps=None, beta1=0.9, beta2=0.99, weight_decay=1e-2):
+        super().__init__(parameters, lr, total_steps)
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.weight_decay = weight_decay
+
+        self.m = [np.zeros_like(p.data) for p in self.parameters]
+
+    def step(self, k):
+        lr = self._current_lr(k)
+
+        for i, p in enumerate(self.parameters):
+            g = p.grad
+
+            # Decoupled weight decay, like AdamW.
+            if self.weight_decay != 0.0:
+                p.data -= lr * self.weight_decay * p.data
+
+            # Direction uses a beta1 interpolation.
+            update = self.beta1 * self.m[i] + (1.0 - self.beta1) * g
+
+            # Sign update.
+            p.data -= lr * np.sign(update)
+
+            # Momentum update uses beta2.
+            self.m[i] = self.beta2 * self.m[i] + (1.0 - self.beta2) * g

@@ -7,18 +7,29 @@ import numpy as np
 
 from vect_micrograd.vect_engine import Value
 
+def sample_batch(X, y, batch_size, replace=True):
+    """Sample a minibatch explicitly.
 
-# ---------------------------------------------------------------------------
-# Loss functions
-# ---------------------------------------------------------------------------
+    Args:
+        X: input array.
+        y: target array.
+        batch_size: number of examples.
+        replace: whether to sample with replacement.
 
-def cross_entropy_loss(model, X, targets, alpha=0.0):
-    logits = model(Value(X))
-    loss, probs = logits.softmax_ce(targets)
-    if alpha:
-        loss = loss + alpha * sum((p * p).sum() for p in model.parameters())
-    accuracy = float((probs.argmax(axis=1) == targets.argmax(axis=1)).mean())
-    return loss, accuracy
+    Returns:
+        Xb, yb
+    """
+    n = X.shape[0]
+
+    if batch_size is None or batch_size >= n:
+        return X, y
+
+    if replace:
+        idx = np.random.randint(0, n, size=batch_size)
+    else:
+        idx = np.random.choice(n, size=batch_size, replace=False)
+
+    return X[idx], y[idx]
 
 def one_hot(y, classes):
     """Convert an integer label array to a one-hot matrix.
@@ -34,24 +45,34 @@ def one_hot(y, classes):
     out[np.arange(len(y)), y] = 1.0
     return out
 
-def svm_loss(model, X, y, alpha=1e-4, batch_size=None):
+# ---------------------------------------------------------------------------
+# Loss functions
+# ---------------------------------------------------------------------------
+
+def cross_entropy_loss(model, X, targets, alpha=0.0):
+    logits = model(Value(X))
+    loss, probs = logits.softmax_ce(targets)
+    if alpha:
+        loss = loss + alpha * sum((p * p).sum() for p in model.parameters())
+    accuracy = float((probs.argmax(axis=1) == targets.argmax(axis=1)).mean())
+    return loss, accuracy
+
+def svm_loss(model, X, y, alpha=1e-4):
     """L2-regularized SVM max-margin loss.
 
+    This function is deterministic: it computes the loss on exactly the
+    X and y passed to it. It does not sample minibatches internally.
+
     Args:
-        model:      MLP or any Module.
-        X:          input array of shape (n, features).
-        y:          target array of shape (n, 1) with values in {-1, +1}.
-        alpha:      L2 regularization strength.
-        batch_size: if given, randomly sample this many examples per call.
+        model: MLP or any Module.
+        X:     input array of shape (n, features).
+        y:     target array of shape (n, 1) with values in {-1, +1}.
+        alpha: L2 regularization strength.
 
     Returns:
         loss:     scalar Value suitable for loss.backward().
         accuracy: float in [0, 1].
     """
-    if batch_size is not None:
-        ri = np.random.permutation(X.shape[0])[:batch_size]
-        X, y = X[ri], y[ri]
-
     scores = model(Value(X))
     margins = (1 + scores * (-y)).relu()
     data_loss = margins.mean()
