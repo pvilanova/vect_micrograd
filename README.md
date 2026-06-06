@@ -1,128 +1,243 @@
 # vect-micrograd
 
 <p align="center">
-  <img src="spiral.png" alt="Spiral" />
-  <img src="checker.png" alt="Spiral" />
+  <img src="spiral.png" alt="Spiral classification demo" width="45%">
+  <img src="checker.png" alt="Checkerboard classification demo" width="45%">
 </p>
 
-A vectorized extension of Andrej Karpathy's [micrograd](https://github.com/karpathy/micrograd).
+A small, vectorized extension of Andrej Karpathy's [micrograd](https://github.com/karpathy/micrograd).
 
-The core idea is simple: keep the same dynamic DAG and reverse-mode autodiff, but let each `Value` node store a NumPy array instead of a Python scalar. A dense layer goes from thousands of scalar nodes to a handful of array ops — matmul, add, activation — without changing how the graph or the backward pass work. Does not support second order derivation.
+The idea is the same as scalar micrograd: build a dynamic DAG during the forward pass, then run reverse-mode automatic differentiation through it. The difference is that each `Value` stores a NumPy array instead of a Python scalar. That turns a dense layer from thousands of scalar operations into a few array operations: matrix multiplication, bias addition, activation, reduction, and loss.
 
----
+This is an educational project, not a production deep-learning framework.
 
-## Design goals
+## What this includes
 
-- **Stay close to micrograd.** Same `Value` class, same `backward()`, same `_prev`/`_op` graph. Anyone who understands micrograd can read this.
-- **No new dependencies.** NumPy only.
-- **Keep it simple.** Broadcasting, matmul, and fused softmax/CE are the only genuinely hard parts. Everything else follows naturally.
-
----
+- A NumPy-backed `Value` class with reverse-mode autodiff.
+- Broadcasting-aware gradients through `_unbroadcast`.
+- Array operations for `+`, `-`, `*`, `/`, powers, `@`, `sum`, `mean`, `exp`, `log`, `relu`, and `tanh`.
+- A fused `softmax_ce` operation for stable softmax cross-entropy.
+- Minimal neural-network helpers: `Module`, `Layer`, and `MLP`.
+- Optimizers: `SGD`, `Adam`, and `Lion`.
+- Utility functions for minibatching, one-hot encoding, classification losses, and checkpointing.
+- Numerical-gradient and unit tests for the core engine.
 
 ## Installation
 
+Clone the repository and install it in editable mode:
+
 ```bash
-pip install -e .
+git clone https://github.com/pvilanova/vect_micrograd.git
+cd vect_micrograd
+python -m pip install -e .
 ```
 
-Requires Python 3.10+ and NumPy.
+The package dependency is just NumPy.
 
----
+For tests and notebooks, install the extra tools you need, for example:
 
-## What changed from scalar micrograd
-
-### `_unbroadcast`
-
-Broadcasting is the trickiest part of array-valued autograd. When `b` has shape `(32,)` and `out = X + b` has shape `(200, 32)`, the gradient `dL/db` must be summed back from `(200, 32)` to `(32,)`. The helper `_unbroadcast` handles this by stripping prepended dimensions and summing stretched ones with `keepdims=True`.
-
-### `__matmul__` backward
-
-Explicitly implements the 2D dense-layer case and three vector variants. The common case is:
-
+```bash
+python -m pip install pytest jupyter matplotlib
 ```
-X @ W  where X.shape = (batch, in),  W.shape = (in, out)
+
+## Quick start
+
+### Basic autodiff
+
+```python
+import numpy as np
+from vect_micrograd.vect_engine import Value
+
+x = Value(np.array([1.0, 2.0, 3.0]))
+w = Value(np.array([0.5, -1.0, 2.0]))
+
+loss = ((x * w).sum()) ** 2
+loss.backward()
+
+print(loss.data)
+print(x.grad)
+print(w.grad)
+```
+
+### Train a small MLP with softmax cross-entropy
+
+```python
+import numpy as np
+
+from vect_micrograd.vect_nn import MLP
+from vect_micrograd.optim import Adam
+from vect_micrograd.utils import sample_batch, one_hot, cross_entropy_loss
+
+# X: shape (n_examples, n_features)
+# y: integer labels, shape (n_examples,), values in {0, ..., classes - 1}
+classes = 3
+model = MLP(2, [16, 16, classes])
+optimizer = Adam(model.parameters(), lr=1e-2, total_steps=1000)
+
+for k in range(1000):
+    Xb, yb = sample_batch(X, y, batch_size=64)
+    targets = one_hot(yb, classes)
+
+    loss, acc = cross_entropy_loss(model, Xb, targets, alpha=1e-4)
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step(k)
+
+    if k % 100 == 0:
+        print(k, loss.item(), acc)
+```
+
+### Binary max-margin loss
+
+```python
+from vect_micrograd.vect_nn import MLP
+from vect_micrograd.optim import SGD
+from vect_micrograd.utils import svm_loss
+
+# y_pm1 should contain -1 / +1 labels, commonly shaped (n_examples, 1)
+model = MLP(2, [16, 16, 1])
+optimizer = SGD(model.parameters(), lr=1.0, total_steps=1000, momentum=0.9)
+
+for k in range(1000):
+    loss, acc = svm_loss(model, X, y_pm1, alpha=1e-4)
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step(k)
+```
+
+## Design notes
+
+### Vectorized `Value`
+
+In scalar micrograd, every scalar in a dense layer becomes a node in the graph. Here, a `Value` can hold an entire NumPy array, so a layer can be represented by a small number of graph nodes:
+
+```python
+out = x @ W + b
+```
+
+The graph is still dynamic, and `backward()` still walks it in reverse topological order.
+
+### Broadcasting-aware gradients
+
+NumPy broadcasting expands smaller arrays during the forward pass. During the backward pass, gradients must be summed back to the original operand shape.
+
+Example:
+
+```python
+x.shape == (200, 32)
+b.shape == (32,)
+out = x + b
+```
+
+The gradient for `b` must have shape `(32,)`, not `(200, 32)`. `_unbroadcast` handles that reduction.
+
+### Matrix multiplication
+
+The engine implements the common dense-layer case:
+
+```text
+X @ W
+
+X.shape = (batch, in_features)
+W.shape = (in_features, out_features)
 
 dL/dX = dL/dY @ W.T
 dL/dW = X.T @ dL/dY
 ```
 
-Higher-dimensional batched matmul is intentionally unsupported — it would add complexity without educational value.
+It also supports vector/matrix convenience cases. Higher-dimensional batched matmul is intentionally unsupported to keep the engine small and readable.
 
-### Fused `softmax_ce`
+### Fused softmax cross-entropy
 
-Softmax and cross-entropy are computed together as a single graph node. Computing them separately would accumulate numerical error across log and sum nodes. The fused backward gradient is `(probs − targets) / batch`, the standard result. This is the same approach PyTorch uses internally for `F.cross_entropy`.
-
-### Optimizer class
-
-`SGD` and `Adam` share an `Optimizer` base class with a built-in linear learning rate schedule:
+`Value.softmax_ce(targets)` computes softmax probabilities and cross-entropy loss together:
 
 ```python
-optimizer = SGD(model.parameters(), lr=1.0, total_steps=1000)
-# or
-optimizer = Adam(model.parameters(), lr=1e-2, total_steps=1000)
+loss, probs = logits.softmax_ce(targets)
 ```
 
-Swapping optimizers is one line. The schedule decays the learning rate linearly to 10% of its initial value by the final step.
+This keeps the loss numerically stable and gives the compact backward gradient:
 
-### He (Kaiming, 2015) initialisation and activation parameter
+```text
+dL/dlogits = (probs - targets) / batch_size
+```
 
-`Layer` uses He initialisation (`W ~ N(0, sqrt(2/nin))`), the correct default for ReLU networks. `MLP` accepts an `activation` parameter:
+### Optimizers
+
+All optimizers share a small `Optimizer` base class and the same `step(k)` interface.
 
 ```python
-MLP(2, [16, 16, 3])                          # ReLU (default)
-MLP(2, [16, 16, 3], activation=Value.tanh)   # tanh
+from vect_micrograd.optim import SGD, Adam, Lion
+
+optimizer = SGD(model.parameters(), lr=1.0, total_steps=1000, momentum=0.9)
+optimizer = Adam(model.parameters(), lr=1e-2, total_steps=1000, weight_decay=1e-2)
+optimizer = Lion(model.parameters(), lr=1e-4, total_steps=1000, weight_decay=1e-2)
 ```
 
----
+If `total_steps` is provided, the learning rate decays linearly to 10% of its initial value by the final step.
+
+### Neural-network helpers
+
+`Layer` uses He initialization:
+
+```text
+W ~ N(0, sqrt(2 / nin))
+```
+
+`MLP` accepts a custom activation function:
+
+```python
+from vect_micrograd.vect_engine import Value
+from vect_micrograd.vect_nn import MLP
+
+model = MLP(2, [16, 16, 3])                         # ReLU by default
+model = MLP(2, [16, 16, 3], activation=Value.tanh)  # tanh
+```
 
 ## Package structure
 
-```
+```text
 vect_micrograd/
-    vect_engine.py   # Value class, autograd primitives
-    vect_nn.py       # Module, Layer, MLP 
-    optim.py           # Optimizer, SGD, Adam 
-    utils.py           # Loss functions and checkpointing 
+    __init__.py
+    vect_engine.py   # Value class and autograd primitives
+    vect_nn.py       # Module, Layer, MLP
+    optim.py         # Optimizer, SGD, Adam, Lion
+    utils.py         # batching, one-hot labels, losses, checkpointing
+
 tests/
-    test_value.py  # Numerical gradient checks and unit tests
+    test_value.py    # numerical gradient checks and unit tests
+
+vect_demo.ipynb      # checkerboard binary classification
+spiral_demo.ipynb    # three-class spiral classification
+mnist_demo.ipynb     # MNIST demo
+checker.png
+spiral.png
+setup.py
 ```
-
-Total: ~350 lines not including comments nor docstrings.
-
----
-
-## Comparison with similar projects
-
-Several projects have extended micrograd to support arrays. Here is how this one differs.
-
-### [ITI-THM/micrograd-np](https://github.com/ITI-THM/micrograd-np)
-Around 900 lines with extensive documentation explaining the math, Xavier initialisation, and Graphviz integration for computational graph visualisation. More complete and more documented, but nearly twice as long. No optimizer class; training loops are written by hand. No fused softmax/CE.
-
-### [srkds/Micrograd-Autograd-Engine-implementation](https://github.com/srkds/Micrograd-Autograd-Engine-implementation)
-Supports vectorization and broadcasting but has a known issue: when you train with a given batch shape, the Value object broadcasts to that shape, and passing a different-sized test set gives an error. `_unbroadcast` in `vect-micrograd` avoids this class of bug entirely.
-
-### [brief-ds/micrograd](https://github.com/brief-ds/micrograd)
-Relaxes PyTorch's requirement that backward starts from a scalar, initialising instead with an all-ones tensor of the expression's result shape, and introduces a `forward()`/`backward()` split with lazily defined variables. A different design philosophy — more declarative, but further from the original micrograd interface.
-
-### [MicrogradPlus](https://github.com/Johnnykoch02/MicrogradPlus)
-Aims to fill the educational gap between micrograd and tinygrad by showing how the transition from scalar to vectorized gradients should be handled. Closest in stated goal. No optimizer abstraction, no fused loss, no test suite.
 
 ## Demos
 
-**`vect_demo.ipynb`** — checkerboard binary classification with SVM loss and L2 regularisation. Shows checkpointing and best-model recovery.
-
-**`spiral_demo.ipynb`** — three-class spiral classification with softmax cross-entropy loss.
-
----
+- `vect_demo.ipynb` — checkerboard binary classification with SVM loss.
+- `spiral_demo.ipynb` — three-class spiral classification with softmax cross-entropy.
+- `mnist_demo.ipynb` — MNIST classification demo.
 
 ## Running tests
 
 ```bash
-pip install pytest
+python -m pip install pytest
 pytest tests/test_value.py -v
 ```
 
-Tests include numerical gradient checks for matmul, fused softmax/CE, and all engine primitives.
+The tests cover scalar operations, repeated graph use, broadcasting, matrix multiplication, activations, reductions, and fused softmax cross-entropy.
+
+## Limitations
+
+- First-order autodiff only.
+- NumPy CPU arrays only.
+- No batched matrix multiplication for operands with more than two dimensions.
+- No production features such as serialization formats, GPU kernels, mixed precision, or graph visualization.
+- Designed for learning and experimentation, not large-scale training.
 
 ## License
 
